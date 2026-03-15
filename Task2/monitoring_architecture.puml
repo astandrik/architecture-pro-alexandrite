@@ -1,0 +1,52 @@
+@startuml monitoring_architecture
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+HIDE_STEREOTYPE()
+LAYOUT_LEFT_RIGHT()
+
+title Container Diagram — Архитектура мониторинга
+
+Person(engineer, "Инженер / On-call", "Смотрит дашборды и реагирует на алерты")
+
+System_Boundary(shop, "Shop") {
+    Container(shopApi, "Shop API", "Spring Boot + Micrometer", "Технические и app-метрики")
+    ContainerDb(shopDb, "Shop DB", "PostgreSQL + pg_exporter", "Метрики БД")
+}
+
+System_Boundary(crm, "CRM") {
+    Container(crmApi, "CRM API", "Spring Boot + Micrometer", "Технические и app-метрики")
+}
+
+System_Boundary(mes, "MES") {
+    Container(mesApi, "MES API", "C# + OTel exporter", "API, calc, overload protection, breaker metrics")
+    ContainerDb(mesDb, "MES DB", "PostgreSQL + pg_exporter", "Метрики БД")
+}
+
+ContainerQueue(rabbitMQ, "RabbitMQ", "Managed RabbitMQ + exporter", "Очереди, DLQ, in-flight, backlog")
+Container(s3, "S3 Storage", "S3 + exporter", "Storage и dependency metrics")
+Container(nodeMetrics, "VM Exporters", "node_exporter", "CPU, memory, disk, instance health")
+
+System_Boundary(obs, "Observability") {
+    Container(prometheus, "Prometheus", "Time-series DB", "Собирает метрики и хранит их")
+    Container(flowMetrics, "Order Flow Metrics", "Recording rules", "Время этапов заказа, зависшие заказы, B2B delivery gap")
+    Container(grafana, "Grafana", "Dashboards", "Технические и process dashboards")
+    Container(alertmanager, "Alertmanager", "Alert routing", "Маршрутизация алертов")
+}
+
+Rel(prometheus, shopApi, "Scrape app metrics")
+Rel(prometheus, shopDb, "Scrape DB metrics")
+Rel(prometheus, crmApi, "Scrape app metrics")
+Rel(prometheus, mesApi, "Scrape app metrics")
+Rel(prometheus, mesDb, "Scrape DB metrics")
+Rel(prometheus, rabbitMQ, "Scrape queue metrics")
+Rel(prometheus, s3, "Scrape storage metrics")
+Rel(prometheus, nodeMetrics, "Scrape infra metrics")
+
+Rel(prometheus, flowMetrics, "Строит process metrics")
+Rel(flowMetrics, grafana, "Показывает order flow dashboards")
+Rel(prometheus, grafana, "Показывает technical dashboards")
+Rel(prometheus, alertmanager, "Отправляет firing alerts")
+Rel(alertmanager, engineer, "Slack / PagerDuty / email")
+Rel(engineer, grafana, "Смотрит дашборды")
+
+@enduml
