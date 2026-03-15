@@ -1,0 +1,73 @@
+@startuml target_c4_containers
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_LEFT_RIGHT()
+HIDE_STEREOTYPE()
+
+title Container Diagram — Целевая архитектура (6 месяцев)
+
+Person(customer, "Customer", "Оформляет заказ и загружает 3D-модель")
+Person(apiUser, "B2B-партнёр", "Отправляет заказы через API")
+Person(operator, "Operator", "Работает с заказами в backoffice")
+Person(seller, "Seller", "Работает с заказами и статусами")
+
+System_Boundary(shop, "Shop") {
+    Container(shopFrontend, "Internet Shop", "Vue, TypeScript, Three.js", "Каталог, 3D-редактор, оформление заказа")
+    Container(shopApi, "Shop API", "Spring Boot", "Единая точка входа заказов B2C и B2B")
+    ContainerDb(shopDb, "Shop DB", "Managed PostgreSQL", "Заказы, клиенты, каталог")
+}
+
+ContainerQueue(orderEvents, "order.created", "Managed RabbitMQ", "Новые заказы и запросы на расчёт")
+
+System_Boundary(mes, "MES") {
+    Container(mesCalc, "MES Calculator", "C#, N реплик", "Только расчёт стоимости по 3D-модели")
+    ContainerDb(mesDb, "MES DB", "Managed PostgreSQL", "Расчёты, назначения, статусы MES")
+}
+
+ContainerQueue(calcEvents, "price.calculated", "Managed RabbitMQ", "Результаты расчёта и обновления статусов")
+
+System_Boundary(crm, "CRM") {
+    Container(crmFrontend, "CRM / Backoffice UI", "Vue, TypeScript", "Интерфейс продавцов и операторов")
+    Container(crmApi, "CRM API", "Spring Boot", "Управление заказами и статусами")
+}
+
+Container(s3, "3D Files Storage", "S3", "Хранение 3D-файлов для расчёта")
+
+Lay_R(customer, shop)
+Lay_R(shop, orderEvents)
+Lay_R(orderEvents, mes)
+Lay_R(mes, calcEvents)
+Lay_R(calcEvents, crm)
+Lay_R(crm, seller)
+
+Rel(customer, shopFrontend, "Оформляет заказ", "HTTPS")
+Rel(apiUser, shopApi, "Отправляет B2B-заказ", "HTTPS")
+Rel(shopFrontend, shopApi, "Вызывает API", "JSON/HTTPS")
+Rel(shopApi, shopDb, "Сохраняет заказ", "JDBC")
+Rel(shopApi, s3, "Загружает 3D-файл", "S3 API")
+Rel(shopApi, orderEvents, "Публикует заказ на расчёт", "AMQP")
+
+Rel(orderEvents, mesCalc, "Передаёт задание на расчёт", "AMQP")
+Rel(mesCalc, s3, "Читает 3D-модель", "S3 API")
+Rel(mesCalc, mesDb, "Сохраняет результат расчёта", "JDBC")
+Rel(mesCalc, calcEvents, "Публикует результат", "AMQP")
+
+Rel(operator, crmFrontend, "Работает с заказами", "HTTPS")
+Rel(calcEvents, crmApi, "Передаёт цену и статусы", "AMQP")
+Rel(seller, crmFrontend, "Работает с заказами", "HTTPS")
+Rel(crmFrontend, crmApi, "Вызывает API", "JSON/HTTPS")
+
+note bottom of crmApi
+Временная shared dependency:
+CRM API продолжает работать
+с Shop DB, пока решение о
+разделении не принято по метрикам.
+end note
+
+note top of mesCalc
+Для всех сервисов:
+метрики, distributed tracing,
+алерты и дашборды.
+end note
+
+@enduml
