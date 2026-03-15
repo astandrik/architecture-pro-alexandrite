@@ -1,0 +1,47 @@
+@startuml monitoring_architecture
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+HIDE_STEREOTYPE()
+
+title Container Diagram — Архитектура мониторинга
+
+Person(engineer, "Инженер / On-call", "Смотрит дашборды, реагирует на алерты")
+
+System_Boundary(obs, "Observability") {
+    Container(prometheus, "Prometheus", "Time-series DB", "Сбор и хранение метрик, scrape targets")
+    Container(grafana, "Grafana", "Dashboards", "Дашборды по сервисам, очередям, заказам")
+    Container(alertmanager, "Alertmanager", "Alert routing", "Маршрутизация алертов в Slack / PagerDuty / email")
+}
+
+System_Boundary(shop, "Shop") {
+    Container(shopApi, "Shop API", "Spring Boot + Micrometer", "RPS, latency, errors, CPU, memory")
+    ContainerDb(shopDb, "Shop DB", "PostgreSQL + pg_exporter", "Connections, memory, slow queries, size")
+}
+
+ContainerQueue(rabbitMQ, "RabbitMQ", "Managed RabbitMQ + exporter", "Queue depth, DLQ, in-flight, oldest msg age")
+
+System_Boundary(mes, "MES") {
+    Container(mesApi, "MES API", "C# + OTel exporter", "RPS, latency, errors, CPU, memory, calc duration")
+    ContainerDb(mesDb, "MES DB", "PostgreSQL + pg_exporter", "Connections, memory, slow queries, size")
+}
+
+System_Boundary(crm, "CRM") {
+    Container(crmApi, "CRM API", "Spring Boot + Micrometer", "RPS, latency, errors, CPU, memory")
+}
+
+Container(s3, "S3 Storage", "S3", "Bucket size")
+
+Rel(prometheus, shopApi, "Scrape /metrics")
+Rel(prometheus, crmApi, "Scrape /metrics")
+Rel(prometheus, mesApi, "Scrape /metrics")
+Rel(prometheus, rabbitMQ, "Scrape exporter")
+Rel(prometheus, shopDb, "Scrape pg_exporter")
+Rel(prometheus, mesDb, "Scrape pg_exporter")
+Rel(prometheus, s3, "CloudWatch / exporter")
+
+Rel(prometheus, alertmanager, "Firing alerts")
+Rel(alertmanager, engineer, "Slack / PagerDuty / email")
+Rel(engineer, grafana, "Смотрит дашборды")
+Rel(grafana, prometheus, "PromQL-запросы")
+
+@enduml
