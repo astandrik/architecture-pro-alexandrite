@@ -1,0 +1,78 @@
+@startuml logging_architecture
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+HIDE_STEREOTYPE()
+
+title Container Diagram — Архитектура логирования
+
+AddElementTag("new", $bgColor="#FF6666", $borderColor="#CC0000", $fontColor="#FFFFFF")
+AddRelTag("log", $lineColor="#CC6600", $textColor="#CC6600")
+
+Person(engineer, "Инженер / Support", "Ищет логи, расследует инциденты, переходит к trace")
+
+System_Boundary(shop, "Shop") {
+    Container(shopApi, "Shop API", "Spring Boot + structured logging", "Создаёт заказы и публикует события")
+    ContainerDb(shopDb, "Shop DB", "PostgreSQL", "Хранит заказы и данные магазина")
+}
+
+ContainerQueue(mq, "RabbitMQ", "Managed RabbitMQ", "Передаёт события о заказах и статусах")
+
+System_Boundary(mes, "MES") {
+    Container(mesApi, "MES API", "C# + structured logging", "Считает цену и обрабатывает B2B-поток")
+    ContainerDb(mesDb, "MES DB", "PostgreSQL", "Хранит расчёты и MES-статусы")
+}
+
+System_Boundary(crm, "CRM") {
+    Container(crmApi, "CRM API", "Spring Boot + structured logging", "Обновляет заказы и статусы")
+}
+
+Container(s3, "3D Files Storage", "S3", "Хранит 3D-файлы и access events")
+
+System_Boundary(logging, "Logging") {
+    Container(logAgent, "Fluent Bit Agents", "Log collector", "Собирают, фильтруют и маскируют логи", $tags="new")
+    Container(loki, "Grafana Loki", "Log storage", "Хранение логов по label-based streams", $tags="new")
+    Container(grafana, "Grafana", "Explore + dashboards", "Поиск логов и переход к trace", $tags="new")
+}
+
+System_Boundary(tracing, "Tracing") {
+    Container(jaeger, "Jaeger", "Trace UI", "Поиск распределённых трейсов")
+}
+
+Rel(shopApi, logAgent, "Пишет application logs", "JSON/file/stdout", $tags="log")
+Rel(shopDb, logAgent, "Пишет error и slow logs", "DB logs", $tags="log")
+Rel(mq, logAgent, "Пишет broker logs", "Broker logs", $tags="log")
+Rel(mesApi, logAgent, "Пишет application и integration logs", "JSON/file/stdout", $tags="log")
+Rel(mesDb, logAgent, "Пишет error и slow logs", "DB logs", $tags="log")
+Rel(crmApi, logAgent, "Пишет application и audit logs", "JSON/file/stdout", $tags="log")
+Rel(s3, logAgent, "Экспортирует access events", "Storage logs", $tags="log")
+
+Rel(logAgent, loki, "Отправляет потоки логов", "HTTP/gRPC", $tags="log")
+Rel(grafana, loki, "Выполняет log queries", "LogQL", $tags="log")
+Rel(engineer, grafana, "Ищет логи и расследует", "HTTPS")
+Rel(grafana, jaeger, "Открывает trace по trace_id", "UI link", $tags="log")
+
+note right of logAgent
+Новые logging-компоненты:
+- сбор с узлов и сервисов
+- маскирование чувствительных полей
+- нормализация полей и labels
+end note
+
+note bottom of loki
+Хранение разделяется по streams:
+- application
+- integration
+- audit
+- platform
+Retention настраивается
+по типу потока и environment.
+end note
+
+note bottom of grafana
+Расследование строится
+по order.id, trace_id,
+partner.id, event_name
+и result.
+end note
+
+@enduml

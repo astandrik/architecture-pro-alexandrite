@@ -1,0 +1,84 @@
+@startuml tracing_architecture
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+HIDE_STEREOTYPE()
+
+title Container Diagram — Архитектура трейсинга
+
+AddElementTag("new", $bgColor="#FF6666", $borderColor="#CC0000", $fontColor="#FFFFFF")
+AddRelTag("trace", $lineColor="#CC0000", $textColor="#CC0000")
+
+Person(customer, "Customer", "Оформляет заказ и загружает 3D-модель")
+Person(apiUser, "B2B-партнёр", "Отправляет заказы через API")
+Person(operator, "Operator", "Работает с заказами в backoffice")
+Person(seller, "Seller", "Работает с заказами и статусами")
+Person(engineer, "Инженер / Support", "Ищет трейсы по заказу или trace id")
+
+System_Boundary(shop, "Shop") {
+    Container(shopFrontend, "Internet Shop", "Vue, TypeScript, Three.js", "Оформление заказа и загрузка 3D-модели")
+    Container(shopApi, "Shop API", "Spring Boot + OpenTelemetry", "Принимает B2C-заказы и публикует события")
+    ContainerDb(shopDb, "Shop DB", "PostgreSQL", "Заказы и данные клиентов")
+}
+
+ContainerQueue(mq, "RabbitMQ", "Managed RabbitMQ", "Передаёт сообщения о заказах и статусах")
+
+System_Boundary(mes, "MES") {
+    Container(mesFrontend, "MES", "React, TypeScript", "Интерфейс операторов")
+    Container(mesApi, "MES API", "C# + OpenTelemetry", "Считает цену и обрабатывает B2B-поток")
+    ContainerDb(mesDb, "MES DB", "PostgreSQL", "Расчёты, назначения и статусы")
+}
+
+System_Boundary(crm, "CRM") {
+    Container(crmFrontend, "CRM", "Vue, TypeScript", "Интерфейс продавцов")
+    Container(crmApi, "CRM API", "Spring Boot + OpenTelemetry", "Ведёт заказ и меняет статусы")
+}
+
+Container(s3, "3D Files Storage", "S3", "Хранит 3D-файлы для расчёта")
+
+System_Boundary(tracing, "Tracing") {
+    Container(otelCollector, "OpenTelemetry Collector", "OTLP collector", "Принимает, обрабатывает и маршрутизирует трейсы", $tags="new")
+    Container(jaeger, "Jaeger", "Trace storage + UI", "Хранение и поиск распределённых трейсов", $tags="new")
+}
+
+Rel(customer, shopFrontend, "Оформляет заказ", "HTTPS")
+Rel(shopFrontend, shopApi, "Вызывает API", "JSON/HTTPS")
+Rel(shopApi, shopDb, "Сохраняет заказ", "JDBC")
+Rel(shopApi, s3, "Загружает 3D-файл", "S3 API")
+Rel(shopApi, mq, "Публикует заказ с trace context", "AMQP", $tags="trace")
+
+Rel(apiUser, mesApi, "Отправляет B2B-заказ", "JSON/HTTPS")
+Rel(mq, mesApi, "Передаёт задание с trace context", "AMQP", $tags="trace")
+Rel(mesApi, s3, "Читает 3D-модель", "S3 API")
+Rel(mesApi, mesDb, "Сохраняет результат", "JDBC")
+Rel(mesApi, mq, "Публикует результат с trace context", "AMQP", $tags="trace")
+
+Rel(seller, crmFrontend, "Работает с заказами", "HTTPS")
+Rel(crmFrontend, crmApi, "Вызывает API", "JSON/HTTPS")
+Rel(mq, crmApi, "Передаёт цену и статусы с trace context", "AMQP", $tags="trace")
+Rel(crmApi, shopDb, "Читает/пишет", "JDBC")
+
+Rel(operator, mesFrontend, "Работает с заказами", "HTTPS")
+Rel(mesFrontend, mesApi, "Вызывает API", "JSON/HTTPS")
+
+Rel(shopApi, otelCollector, "Экспортирует трейсы", "OTLP/gRPC", $tags="trace")
+Rel(mesApi, otelCollector, "Экспортирует трейсы", "OTLP/gRPC", $tags="trace")
+Rel(crmApi, otelCollector, "Экспортирует трейсы", "OTLP/gRPC", $tags="trace")
+Rel(otelCollector, jaeger, "Сохраняет трейсы", "OTLP/Jaeger", $tags="trace")
+Rel(engineer, jaeger, "Ищет трейсы", "HTTPS")
+
+note right of otelCollector
+Новые tracing-компоненты:
+- приём OTLP
+- фильтрация атрибутов
+- sampling
+- маршрутизация в Jaeger
+end note
+
+note bottom of mq
+Trace context передаётся
+в headers сообщений, чтобы
+связать producer и consumer
+span-ы одного заказа.
+end note
+
+@enduml
