@@ -2,6 +2,7 @@
 !include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
 
 HIDE_STEREOTYPE()
+LAYOUT_LEFT_RIGHT()
 
 title Container Diagram — Трейсинг, мониторинг процесса и алертинг
 
@@ -10,64 +11,26 @@ AddRelTag("trace", $lineColor="#CC0000", $textColor="#CC0000")
 AddElementTag("extra", $bgColor="#66BB6A", $borderColor="#2E7D32", $fontColor="#FFFFFF")
 AddRelTag("extra", $lineColor="#2E7D32", $textColor="#2E7D32")
 
-Person(customer, "Customer", "Оформляет заказ и загружает 3D-модель")
-Person(apiUser, "B2B-партнёр", "Отправляет заказы через API")
-Person(operator, "Operator", "Работает с заказами в backoffice")
-Person(seller, "Seller", "Работает с заказами и статусами")
-Person(engineer, "Инженер / Support", "Ищет трейсы, смотрит дашборды и реагирует на алерты")
+Person(engineer, "Инженер / Support", "Ищет trace, смотрит дашборды и реагирует на алерты")
 
-System_Boundary(shop, "Shop") {
-    Container(shopFrontend, "Internet Shop", "Vue, TypeScript, Three.js", "Оформление заказа и загрузка 3D-модели")
-    Container(shopApi, "Shop API", "Spring Boot + OpenTelemetry", "Принимает B2C-заказы и публикует события")
-    ContainerDb(shopDb, "Shop DB", "PostgreSQL", "Заказы и данные клиентов")
+System_Boundary(apps, "Applications") {
+    Container(shopApi, "Shop API", "Spring Boot + OpenTelemetry", "Публикует B2C и будущий B2B path")
+    Container(mesApi, "MES API", "C# + OpenTelemetry", "Расчёт стоимости и переходный B2B-path")
+    Container(crmApi, "CRM API", "Spring Boot + OpenTelemetry", "Управление заказами и статусами")
+    ContainerQueue(mq, "RabbitMQ", "Managed RabbitMQ", "Передаёт события заказа и расчёта")
 }
-
-ContainerQueue(mq, "RabbitMQ", "Managed RabbitMQ", "Передаёт сообщения о заказах и статусах")
-
-System_Boundary(mes, "MES") {
-    Container(mesFrontend, "MES", "React, TypeScript", "Интерфейс операторов")
-    Container(mesApi, "MES API", "C# + OpenTelemetry", "Считает цену и обрабатывает B2B-поток")
-    ContainerDb(mesDb, "MES DB", "PostgreSQL", "Расчёты, назначения и статусы")
-}
-
-System_Boundary(crm, "CRM") {
-    Container(crmFrontend, "CRM", "Vue, TypeScript", "Интерфейс продавцов")
-    Container(crmApi, "CRM API", "Spring Boot + OpenTelemetry", "Ведёт заказ и меняет статусы")
-}
-
-Container(s3, "3D Files Storage", "S3", "Хранит 3D-файлы для расчёта")
 
 System_Boundary(tracing, "Tracing") {
-    Container(otelCollector, "OpenTelemetry Collector", "OTLP collector", "Принимает, обрабатывает и маршрутизирует трейсы", $tags="new")
-    Container(jaeger, "Jaeger", "Trace storage + UI", "Хранение и поиск распределённых трейсов", $tags="new")
+    Container(otelCollector, "OpenTelemetry Collector", "OTLP collector", "Принимает и маршрутизирует трейсы", $tags="new")
+    Container(jaeger, "Jaeger", "Trace storage + UI", "Хранение и поиск трейсов", $tags="new")
 }
 
 System_Boundary(processObs, "Process Monitoring") {
-    Container(flowMetrics, "Trace-derived Order Flow Metrics", "spanmetrics + recording rules", "Строит агрегаты по этапам заказа и producer/consumer gap", $tags="extra")
+    Container(flowMetrics, "Order Flow Metrics", "Trace-derived metrics", "Latency этапов, зависшие заказы, producer/consumer gap", $tags="extra")
     Container(prometheus, "Prometheus", "Metrics storage", "Хранит process metrics и проверяет alert rules", $tags="extra")
-    Container(grafana, "Grafana", "Dashboards", "Показывает сквозные дашборды прохождения заказа", $tags="extra")
-    Container(alertmanager, "Alertmanager", "Alert routing", "Рассылает алерты в Slack / PagerDuty / email", $tags="extra")
+    Container(grafana, "Grafana", "Dashboards", "Показывает сквозные process dashboards", $tags="extra")
+    Container(alertmanager, "Alertmanager", "Alert routing", "Рассылает alert notifications", $tags="extra")
 }
-
-Rel(customer, shopFrontend, "Оформляет заказ", "HTTPS")
-Rel(shopFrontend, shopApi, "Вызывает API", "JSON/HTTPS")
-Rel(shopApi, shopDb, "Сохраняет заказ", "JDBC")
-Rel(shopApi, s3, "Загружает 3D-файл", "S3 API")
-Rel(shopApi, mq, "Публикует заказ с trace context", "AMQP", $tags="trace")
-
-Rel(apiUser, mesApi, "Отправляет B2B-заказ", "JSON/HTTPS")
-Rel(mq, mesApi, "Передаёт задание с trace context", "AMQP", $tags="trace")
-Rel(mesApi, s3, "Читает 3D-модель", "S3 API")
-Rel(mesApi, mesDb, "Сохраняет результат", "JDBC")
-Rel(mesApi, mq, "Публикует результат с trace context", "AMQP", $tags="trace")
-
-Rel(seller, crmFrontend, "Работает с заказами", "HTTPS")
-Rel(crmFrontend, crmApi, "Вызывает API", "JSON/HTTPS")
-Rel(mq, crmApi, "Передаёт цену и статусы с trace context", "AMQP", $tags="trace")
-Rel(crmApi, shopDb, "Читает/пишет", "JDBC")
-
-Rel(operator, mesFrontend, "Работает с заказами", "HTTPS")
-Rel(mesFrontend, mesApi, "Вызывает API", "JSON/HTTPS")
 
 Rel(shopApi, otelCollector, "Экспортирует трейсы", "OTLP/gRPC", $tags="trace")
 Rel(mesApi, otelCollector, "Экспортирует трейсы", "OTLP/gRPC", $tags="trace")
@@ -75,34 +38,16 @@ Rel(crmApi, otelCollector, "Экспортирует трейсы", "OTLP/gRPC",
 Rel(otelCollector, jaeger, "Сохраняет трейсы", "OTLP/Jaeger", $tags="trace")
 Rel(engineer, jaeger, "Ищет трейсы", "HTTPS")
 
-Rel(otelCollector, flowMetrics, "Строит process metrics из span-ов", "spanmetrics / rules", $tags="extra")
+Rel(otelCollector, flowMetrics, "Строит process metrics из trace", "spanmetrics / rules", $tags="extra")
 Rel(flowMetrics, prometheus, "Экспортирует агрегаты", "scrape / remote write", $tags="extra")
-Rel(prometheus, grafana, "Отдаёт process metrics", "PromQL", $tags="extra")
+Rel(prometheus, grafana, "Показывает process metrics", "PromQL", $tags="extra")
 Rel(prometheus, alertmanager, "Отправляет firing alerts", "Alert API", $tags="extra")
 Rel(alertmanager, engineer, "Slack / PagerDuty / email", "Notifications", $tags="extra")
-Rel(engineer, grafana, "Смотрит дашборды", "HTTPS", $tags="extra")
+Rel(engineer, grafana, "Смотрит process dashboards", "HTTPS", $tags="extra")
 
-note right of otelCollector
-Красные элементы:
-- OTLP ingestion
-- sampling
-- фильтрация атрибутов
-- хранение трейсов в Jaeger
-end note
-
-note right of flowMetrics
-Зелёные элементы:
-- trace-derived metrics
-- latency этапов заказа
-- producer/consumer gap
-- алерты по SLA и зависанию
-end note
-
-note bottom of prometheus
-В метрики попадают агрегаты
-по flow, channel и статусам,
-а конкретный order ищется
-через trace в Jaeger.
-end note
+Rel(shopApi, mq, "Публикует order events", "AMQP")
+Rel(mq, mesApi, "Передаёт задания на расчёт", "AMQP")
+Rel(mesApi, mq, "Публикует результат расчёта", "AMQP")
+Rel(mq, crmApi, "Передаёт результаты и статусы", "AMQP")
 
 @enduml
