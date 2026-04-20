@@ -1,0 +1,49 @@
+@startuml logging_architecture
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+HIDE_STEREOTYPE()
+LAYOUT_LEFT_RIGHT()
+
+title Container Diagram — Архитектура логирования
+
+AddElementTag("new", $bgColor="#FF6666", $borderColor="#CC0000", $fontColor="#FFFFFF")
+AddRelTag("log", $lineColor="#CC6600", $textColor="#CC6600")
+
+Person(engineer, "Инженер / Support", "Ищет логи и переходит к trace")
+
+System_Boundary(sources, "Log Sources") {
+    Container(shopApi, "Shop API", "Spring Boot + structured logging", "Логи заказов и публикации событий")
+    Container(mesApi, "MES API", "C# + structured logging", "Логи расчёта, интеграции и B2B")
+    Container(crmApi, "CRM API", "Spring Boot + structured logging", "Логи статусов и audit events")
+    ContainerDb(shopDb, "Shop DB", "PostgreSQL", "Error и slow logs")
+    ContainerDb(mesDb, "MES DB", "PostgreSQL", "Error и slow logs")
+    ContainerQueue(mq, "RabbitMQ", "Managed RabbitMQ", "Broker logs")
+    Container(s3, "3D Files Storage", "S3", "Access events")
+}
+
+System_Boundary(logging, "Logging") {
+    Container(filebeat, "Filebeat", "Log shipping agent", "Собирает и отправляет логи", $tags="new")
+    Container(logstash, "Logstash", "Data pipeline", "Нормализует и маршрутизирует логи", $tags="new")
+    Container(search, "OpenSearch / Elasticsearch", "Search index", "Хранит и индексирует логи", $tags="new")
+    Container(kibana, "Kibana", "Search + dashboards", "Поиск логов и расследование", $tags="new")
+}
+
+System_Boundary(tracing, "Tracing") {
+    Container(jaeger, "Jaeger", "Trace UI", "Поиск распределённых трейсов")
+}
+
+Rel(shopApi, filebeat, "Отправляет логи", "JSON/stdout", $tags="log")
+Rel(mesApi, filebeat, "Отправляет логи", "JSON/stdout", $tags="log")
+Rel(crmApi, filebeat, "Отправляет логи", "JSON/stdout", $tags="log")
+Rel(shopDb, filebeat, "Отправляет логи", "DB logs", $tags="log")
+Rel(mesDb, filebeat, "Отправляет логи", "DB logs", $tags="log")
+Rel(mq, filebeat, "Отправляет логи", "Broker logs", $tags="log")
+Rel(s3, filebeat, "Отправляет логи", "Storage events", $tags="log")
+
+Rel(filebeat, logstash, "Передаёт логи", "Beats protocol", $tags="log")
+Rel(logstash, search, "Индексирует логи", "HTTP/JSON", $tags="log")
+Rel(kibana, search, "Ищет логи", "Query API", $tags="log")
+Rel(engineer, kibana, "Расследует инциденты", "HTTPS")
+Rel(kibana, jaeger, "Открывает trace", "UI link", $tags="log")
+
+@enduml

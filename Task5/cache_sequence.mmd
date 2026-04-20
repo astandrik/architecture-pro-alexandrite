@@ -1,0 +1,39 @@
+sequenceDiagram
+    autonumber
+    actor Operator as Operator
+    participant MES as MES UI
+    participant API as MES API / CRM API
+    participant Cache as Redis Cache
+    participant DB as MES DB / Shop DB
+
+    rect rgb(245, 248, 255)
+        Note over Operator,DB: Чтение списка заказов
+        Operator->>MES: Открывает дашборд
+        MES->>API: GET /orders?status=...&page=...&sort=newest
+        API->>Cache: GET cacheKey(list,status,page,sort)
+        alt cache hit
+            Cache-->>API: cached list
+            API-->>MES: 200 + orders
+            MES-->>Operator: Показывает список
+        else cache miss
+            Cache-->>API: miss
+            API->>DB: SELECT orders by filter/page/sort
+            DB-->>API: rows
+            API->>Cache: SETEX cacheKey(list,status,page,sort), ttl
+            API-->>MES: 200 + orders
+            MES-->>Operator: Показывает список
+        end
+    end
+
+    rect rgb(255, 248, 245)
+        Note over Operator,DB: Смена статуса заказа
+        Operator->>MES: Меняет статус заказа
+        MES->>API: PATCH /orders/{id}/status
+        API->>DB: UPDATE order status
+        DB-->>API: success
+        API->>Cache: DEL order card key
+        API->>Cache: DEL affected list keys
+        API->>Cache: DEL dashboard aggregate keys
+        API-->>MES: 200 + updated order
+        MES-->>Operator: Показывает новый статус
+    end

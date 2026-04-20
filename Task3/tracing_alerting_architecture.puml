@@ -1,0 +1,53 @@
+@startuml tracing_alerting_architecture
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+HIDE_STEREOTYPE()
+LAYOUT_LEFT_RIGHT()
+
+title Container Diagram — Трейсинг, мониторинг процесса и алертинг
+
+AddElementTag("new", $bgColor="#FF6666", $borderColor="#CC0000", $fontColor="#FFFFFF")
+AddRelTag("trace", $lineColor="#CC0000", $textColor="#CC0000")
+AddElementTag("extra", $bgColor="#66BB6A", $borderColor="#2E7D32", $fontColor="#FFFFFF")
+AddRelTag("extra", $lineColor="#2E7D32", $textColor="#2E7D32")
+
+Person(engineer, "Инженер / Support", "Ищет trace, смотрит дашборды и реагирует на алерты")
+
+System_Boundary(apps, "Applications") {
+    Container(shopApi, "Shop API", "Spring Boot + OpenTelemetry", "Публикует B2C и будущий B2B path")
+    Container(mesApi, "MES API", "C# + OpenTelemetry", "Расчёт стоимости и переходный B2B-path")
+    Container(crmApi, "CRM API", "Spring Boot + OpenTelemetry", "Управление заказами и статусами")
+    ContainerQueue(mq, "RabbitMQ", "Managed RabbitMQ", "Передаёт события заказа и расчёта")
+}
+
+System_Boundary(tracing, "Tracing") {
+    Container(otelCollector, "OpenTelemetry Collector", "OTLP collector", "Принимает и маршрутизирует трейсы", $tags="new")
+    Container(jaeger, "Jaeger", "Trace storage + UI", "Хранение и поиск трейсов", $tags="new")
+}
+
+System_Boundary(processObs, "Process Monitoring") {
+    Container(flowMetrics, "Order Flow Metrics", "Trace-derived metrics", "Latency этапов, зависшие заказы, producer/consumer gap", $tags="extra")
+    Container(prometheus, "Prometheus", "Metrics storage", "Хранит process metrics и проверяет alert rules", $tags="extra")
+    Container(grafana, "Grafana", "Dashboards", "Показывает сквозные process dashboards", $tags="extra")
+    Container(alertmanager, "Alertmanager", "Alert routing", "Рассылает alert notifications", $tags="extra")
+}
+
+Rel(shopApi, otelCollector, "Экспортирует трейсы", "OTLP/gRPC", $tags="trace")
+Rel(mesApi, otelCollector, "Экспортирует трейсы", "OTLP/gRPC", $tags="trace")
+Rel(crmApi, otelCollector, "Экспортирует трейсы", "OTLP/gRPC", $tags="trace")
+Rel(otelCollector, jaeger, "Сохраняет трейсы", "OTLP/Jaeger", $tags="trace")
+Rel(engineer, jaeger, "Ищет трейсы", "HTTPS")
+
+Rel(otelCollector, flowMetrics, "Строит process metrics из trace", "spanmetrics / rules", $tags="extra")
+Rel(flowMetrics, prometheus, "Экспортирует агрегаты", "scrape / remote write", $tags="extra")
+Rel(prometheus, grafana, "Показывает process metrics", "PromQL", $tags="extra")
+Rel(prometheus, alertmanager, "Отправляет firing alerts", "Alert API", $tags="extra")
+Rel(alertmanager, engineer, "Slack / PagerDuty / email", "Notifications", $tags="extra")
+Rel(engineer, grafana, "Смотрит process dashboards", "HTTPS", $tags="extra")
+
+Rel(shopApi, mq, "Публикует order events", "AMQP")
+Rel(mq, mesApi, "Передаёт задания на расчёт", "AMQP")
+Rel(mesApi, mq, "Публикует результат расчёта", "AMQP")
+Rel(mq, crmApi, "Передаёт результаты и статусы", "AMQP")
+
+@enduml
